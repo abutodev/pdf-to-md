@@ -277,7 +277,7 @@ function handleFiles(files) {
 
 // ── Upload & convert ───────────────────────────────────────────────────────
 async function uploadFile(file) {
-  const jobId = 'job-' + Math.random().toString(36).slice(2);
+  const jobId = crypto.randomUUID();
   addJobCard(jobId, file.name);
   setLog(jobId, ['Uploading…']);
 
@@ -285,38 +285,55 @@ async function uploadFile(file) {
   fd.append('file', file);
   fd.append('format', document.getElementById('opt-format').value);
   fd.append('force_ocr', String(document.getElementById('opt-ocr').checked));
+  fd.append('jobId', jobId);
 
   try {
-    setLog(jobId, ['Uploading…', 'Converting with Claude API — this may take up to 30 s…']);
+    const r = await fetch('/.netlify/functions/convert-background', { method: 'POST', body: fd });
 
-    const r = await fetch('/.netlify/functions/convert', { method: 'POST', body: fd });
-
-    if (!r.ok && r.headers.get('content-type')?.includes('text/html')) {
-      updateJob(jobId, 'error', [`Server error: HTTP ${r.status}`]);
+    if (r.status !== 202) {
+      updateJob(jobId, 'error', [`Upload failed: HTTP ${r.status}`]);
       return;
     }
 
-    let d;
-    try {
-      d = await r.json();
-    } catch {
-      updateJob(jobId, 'error', [`Server error: HTTP ${r.status} (unexpected response)`]);
-      return;
-    }
-
-    if (!r.ok || d.error) {
-      updateJob(jobId, 'error', [d.error || `HTTP ${r.status}`]);
-      return;
-    }
-
-    const mimeTypes = { markdown: 'text/markdown', html: 'text/html', json: 'application/json' };
-    const blob = new Blob([d.text], { type: mimeTypes[d.format] || 'text/plain' });
-    const blobUrl = URL.createObjectURL(blob);
-
-    updateJob(jobId, 'done', ['Conversion complete ✓'], d.filename, blobUrl);
+    setLog(jobId, ['Uploaded. Converting with Claude API…']);
+    await pollStatus(jobId);
   } catch (e) {
     updateJob(jobId, 'error', [`Error: ${e.message}`]);
   }
+}
+
+async function pollStatus(jobId) {
+  const maxWait = 120000; // 2 minutes
+  const interval = 2500;
+  const start = Date.now();
+
+  while (Date.now() - start < maxWait) {
+    await new Promise(res => setTimeout(res, interval));
+
+    try {
+      const r = await fetch(`/.netlify/functions/status?jobId=${jobId}`);
+      const d = await r.json();
+
+      if (d.status === 'done') {
+        const mimeTypes = { markdown: 'text/markdown', html: 'text/html', json: 'application/json' };
+        const blob = new Blob([d.text], { type: mimeTypes[d.format] || 'text/plain' });
+        updateJob(jobId, 'done', ['Conversion complete ✓'], d.filename, URL.createObjectURL(blob));
+        return;
+      }
+
+      if (d.status === 'error') {
+        updateJob(jobId, 'error', [d.error || 'Conversion failed']);
+        return;
+      }
+
+      const elapsed = Math.round((Date.now() - start) / 1000);
+      setLog(jobId, [`Converting with Claude API… (${elapsed}s)`]);
+    } catch (_) {
+      // transient network error — keep polling
+    }
+  }
+
+  updateJob(jobId, 'error', ['Timed out waiting for result (>2 min)']);
 }
 
 // ── DOM helpers ────────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const busboy = require('busboy');
+const { getStore } = require('@netlify/blobs');
 
 function parseMultipart(event) {
   return new Promise((resolve, reject) => {
@@ -14,10 +15,7 @@ function parseMultipart(event) {
       const chunks = [];
       file.on('data', chunk => chunks.push(chunk));
       file.on('end', () => {
-        files[fieldname] = {
-          buffer: Buffer.concat(chunks),
-          filename: info.filename,
-        };
+        files[fieldname] = { buffer: Buffer.concat(chunks), filename: info.filename };
       });
     });
 
@@ -50,33 +48,36 @@ const FORMAT_PROMPTS = {
 const EXT_MAP = { markdown: 'md', html: 'html', json: 'json' };
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
-  }
+  if (event.httpMethod !== 'POST') return;
+
+  const store = getStore('pdf-conversions');
+  let jobId;
 
   try {
     const { files, fields } = await parseMultipart(event);
-    const pdfFile = files['file'];
+    jobId = fields['jobId'];
+    if (!jobId) return;
 
+    await store.setJSON(jobId, { status: 'processing' }, { ttl: 3600 });
+
+    const pdfFile = files['file'];
     if (!pdfFile) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'No file uploaded' }) };
+      await store.setJSON(jobId, { status: 'error', error: 'No file uploaded' }, { ttl: 3600 });
+      return;
     }
 
     const filename = pdfFile.filename || 'document.pdf';
     if (!filename.toLowerCase().endsWith('.pdf')) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'Only PDF files are accepted' }) };
+      await store.setJSON(jobId, { status: 'error', error: 'Only PDF files are accepted' }, { ttl: 3600 });
+      return;
     }
 
     const format = fields['format'] || 'markdown';
     const forceOcr = fields['force_ocr'] === 'true';
-
     const prompt = (FORMAT_PROMPTS[format] || FORMAT_PROMPTS.markdown) +
-      (forceOcr
-        ? '\n\nThis document may be a scanned image — carefully extract all visible text even if quality is low.'
-        : '');
+      (forceOcr ? '\n\nThis document may be a scanned image — carefully extract all visible text even if quality is low.' : '');
 
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    // Override via ANTHROPIC_MODEL env var (e.g. claude-haiku-4-5 for faster/cheaper conversions)
     const model = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5';
 
     const message = await client.messages.create({
@@ -87,11 +88,7 @@ exports.handler = async (event) => {
         content: [
           {
             type: 'document',
-            source: {
-              type: 'base64',
-              media_type: 'application/pdf',
-              data: pdfFile.buffer.toString('base64'),
-            },
+            source: { type: 'base64', media_type: 'application/pdf', data: pdfFile.buffer.toString('base64') },
           },
           { type: 'text', text: prompt },
         ],
@@ -102,18 +99,11 @@ exports.handler = async (event) => {
     const baseName = filename.replace(/\.pdf$/i, '');
     const outputFilename = `${baseName}.${EXT_MAP[format] || 'md'}`;
 
-    return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, filename: outputFilename, format }),
-    };
-
+    await store.setJSON(jobId, { status: 'done', text, filename: outputFilename, format }, { ttl: 3600 });
   } catch (err) {
     console.error('Conversion error:', err);
-    return {
-      statusCode: err.status || 500,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: err.message || 'Conversion failed' }),
-    };
+    if (jobId) {
+      await store.setJSON(jobId, { status: 'error', error: err.message || 'Conversion failed' }, { ttl: 3600 });
+    }
   }
 };

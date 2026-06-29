@@ -8,9 +8,6 @@
 [functions]
   node_bundler = "esbuild"
 
-[functions."convert"]
-  timeout = 26
-
 [[headers]]
   for = "/*"
   [headers.values]
