@@ -1,0 +1,8 @@
+{
+  "name": "pdf-to-md-functions",
+  "version": "1.0.0",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "busboy": "^1.6.0"
+  }
+}

@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PDF → Markdown</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #f5f5f7;
+  --surface: #ffffff;
+  --border:  #e2e2e7;
+  --accent:  #6c63ff;
+  --accent2: #534ccf;
+  --text:    #1c1c1e;
+  --muted:   #6e6e73;
+  --green:   #30d158;
+  --red:     #ff453a;
+  --orange:  #ff9f0a;
+  --r:       14px;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+/* ── Header ── */
+header {
+  background: rgba(255,255,255,0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.logo {
+  width: 32px; height: 32px;
+  background: linear-gradient(135deg, #6c63ff, #9c67d4);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  color: white; font-size: 15px; font-weight: 800;
+  flex-shrink: 0;
+}
+header h1 { font-size: 17px; font-weight: 600; flex: 1; }
+.powered-by {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+}
+
+/* ── Layout ── */
+main { max-width: 780px; margin: 0 auto; padding: 28px 20px 80px; }
+
+/* ── Card ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 22px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+.card-title {
+  font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .07em;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+
+/* ── Drop zone ── */
+.drop-zone {
+  position: relative;
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  padding: 44px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .18s, background .18s;
+  user-select: none;
+}
+.drop-zone:hover, .drop-zone.over {
+  border-color: var(--accent);
+  background: rgba(108,99,255,.04);
+}
+.drop-zone input {
+  position: absolute; inset: 0;
+  opacity: 0; cursor: pointer; font-size: 0;
+}
+.dz-icon { font-size: 40px; margin-bottom: 12px; }
+.dz-text { font-size: 14px; color: var(--muted); line-height: 1.6; }
+.dz-text strong { color: var(--accent); }
+.dz-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+/* ── Options ── */
+.opts-row { display: flex; gap: 14px; flex-wrap: wrap; }
+.opt-group { flex: 1; min-width: 160px; }
+.opt-group > label:first-child {
+  display: block; font-size: 12px; font-weight: 500;
+  color: var(--muted); margin-bottom: 6px;
+}
+select {
+  width: 100%; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 8px;
+  font-size: 13px; background: var(--bg); color: var(--text);
+  outline: none; cursor: pointer;
+}
+select:focus { border-color: var(--accent); }
+.checkbox-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); font-size: 13px; cursor: pointer;
+  transition: border-color .15s;
+}
+.checkbox-row:hover { border-color: var(--accent); }
+.checkbox-row input { accent-color: var(--accent); width: 15px; height: 15px; flex-shrink: 0; }
+
+/* ── Job list ── */
+#job-list .empty {
+  text-align: center; color: var(--muted);
+  font-size: 13px; padding: 28px 0;
+}
+.job {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 10px;
+  transition: border-color .2s;
+}
+.job.done       { border-color: #a8d5b5; }
+.job.error      { border-color: #f5b8b8; }
+.job.converting { border-color: #ffd166; }
+
+.job-top {
+  padding: 12px 14px;
+  display: flex; align-items: center; gap: 10px;
+}
+.job-icon { font-size: 20px; flex-shrink: 0; }
+.job-info { flex: 1; overflow: hidden; }
+.job-name {
+  font-size: 14px; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.job-badge {
+  padding: 3px 10px; border-radius: 99px;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.badge-converting { background: #fff3cd; color: #856404; }
+.badge-done       { background: #d4edda; color: #155724; }
+.badge-error      { background: #f8d7da; color: #721c24; }
+.job-remove {
+  background: none; border: none; cursor: pointer;
+  color: var(--muted); font-size: 16px; padding: 4px;
+  line-height: 1; flex-shrink: 0;
+  transition: color .15s;
+}
+.job-remove:hover { color: var(--red); }
+
+.job-bottom {
+  padding: 0 14px 12px;
+  display: flex; gap: 8px; align-items: flex-start;
+}
+.job-log {
+  flex: 1;
+  background: #f5f5f7; border-radius: 6px;
+  padding: 8px 10px;
+  font-family: "SF Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 11px; color: var(--muted);
+  max-height: 90px; overflow-y: auto;
+  line-height: 1.65;
+}
+.job-log p { white-space: pre-wrap; }
+
+.btn-dl {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px;
+  background: var(--accent); color: white;
+  border: none; border-radius: 7px;
+  font-size: 12px; font-weight: 500;
+  cursor: pointer; white-space: nowrap;
+  text-decoration: none;
+  transition: background .15s;
+  flex-shrink: 0;
+}
+.btn-dl:hover { background: var(--accent2); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">P</div>
+  <h1>PDF → Markdown</h1>
+  <span class="powered-by">Powered by Claude API</span>
+</header>
+
+<main>
+
+  <div class="card">
+    <div class="card-title">Upload</div>
+    <div class="drop-zone" id="drop-zone">
+      <input type="file" id="file-input" accept=".pdf" multiple>
+      <div class="dz-icon">📄</div>
+      <div class="dz-text">
+        <strong>Click to browse</strong> or drag &amp; drop PDFs here
+      </div>
+      <div class="dz-sub">Multiple files supported &nbsp;·&nbsp; Max ~5 MB per file</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Options</div>
+    <div class="opts-row">
+      <div class="opt-group">
+        <label for="opt-format">Output format</label>
+        <select id="opt-format">
+          <option value="markdown">Markdown (.md)</option>
+          <option value="html">HTML (.html)</option>
+          <option value="json">JSON (.json)</option>
+        </select>
+      </div>
+      <div class="opt-group">
+        <label>OCR</label>
+        <label class="checkbox-row">
+          <input type="checkbox" id="opt-ocr">
+          Force OCR (use for scanned PDFs)
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Conversions</div>
+    <div id="job-list">
+      <div class="empty">No conversions yet — upload a PDF above to get started.</div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+const dropZone  = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const jobList   = document.getElementById('job-list');
+
+const jobEls = {};  // jobId -> DOM element
+
+// ── Drag & drop ────────────────────────────────────────────────────────────
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('over');
+  handleFiles([...e.dataTransfer.files]);
+});
+fileInput.addEventListener('change', () => {
+  handleFiles([...fileInput.files]);
+  fileInput.value = '';
+});
+
+function handleFiles(files) {
+  const pdfs = files.filter(f => f.name.toLowerCase().endsWith('.pdf'));
+  if (!pdfs.length) { alert('Please drop PDF files only.'); return; }
+  pdfs.forEach(uploadFile);
+}
+
+// ── Upload & convert ───────────────────────────────────────────────────────
+async function uploadFile(file) {
+  const jobId = 'job-' + Math.random().toString(36).slice(2);
+  addJobCard(jobId, file.name);
+  setLog(jobId, ['Uploading…']);
+
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('format', document.getElementById('opt-format').value);
+  fd.append('force_ocr', String(document.getElementById('opt-ocr').checked));
+
+  try {
+    setLog(jobId, ['Uploading…', 'Converting with Claude API — this may take up to 30 s…']);
+
+    const r = await fetch('/.netlify/functions/convert', { method: 'POST', body: fd });
+    const d = await r.json();
+
+    if (!r.ok || d.error) {
+      updateJob(jobId, 'error', [d.error || `HTTP ${r.status}`]);
+      return;
+    }
+
+    const mimeTypes = { markdown: 'text/markdown', html: 'text/html', json: 'application/json' };
+    const blob = new Blob([d.text], { type: mimeTypes[d.format] || 'text/plain' });
+    const blobUrl = URL.createObjectURL(blob);
+
+    updateJob(jobId, 'done', ['Conversion complete ✓'], d.filename, blobUrl);
+  } catch (e) {
+    updateJob(jobId, 'error', [`Error: ${e.message}`]);
+  }
+}
+
+// ── DOM helpers ────────────────────────────────────────────────────────────
+function addJobCard(jobId, filename) {
+  const empty = jobList.querySelector('.empty');
+  if (empty) empty.remove();
+
+  const el = document.createElement('div');
+  el.className = 'job converting';
+  el.dataset.job = jobId;
+  el.innerHTML = `
+    <div class="job-top">
+      <div class="job-icon">⚙️</div>
+      <div class="job-info">
+        <div class="job-name" title="${esc(filename)}">${esc(filename)}</div>
+      </div>
+      <span class="job-badge badge-converting" id="badge-${jobId}">Converting…</span>
+      <button class="job-remove" onclick="removeJob('${jobId}')">✕</button>
+    </div>
+    <div class="job-bottom">
+      <div class="job-log" id="log-${jobId}"></div>
+      <div class="job-dl" id="dl-${jobId}"></div>
+    </div>`;
+  jobList.prepend(el);
+  jobEls[jobId] = el;
+}
+
+function setLog(jobId, lines) {
+  const logEl = document.getElementById(`log-${jobId}`);
+  if (logEl) {
+    logEl.innerHTML = lines.map(l => `<p>${esc(l)}</p>`).join('');
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+}
+
+function updateJob(jobId, status, log = [], outputFilename = null, blobUrl = null) {
+  const el = jobEls[jobId];
+  if (!el) return;
+
+  el.className = `job ${status}`;
+
+  const icon = el.querySelector('.job-icon');
+  if (icon) icon.textContent = status === 'done' ? '✅' : '❌';
+
+  const badge = document.getElementById(`badge-${jobId}`);
+  if (badge) {
+    badge.className = `job-badge badge-${status}`;
+    badge.textContent = status === 'done' ? 'Done' : 'Error';
+  }
+
+  setLog(jobId, log);
+
+  const dlEl = document.getElementById(`dl-${jobId}`);
+  if (dlEl && status === 'done' && outputFilename && blobUrl) {
+    dlEl.innerHTML =
+      `<a class="btn-dl" href="${blobUrl}" download="${esc(outputFilename)}">` +
+      `⬇ ${esc(outputFilename)}</a>`;
+  }
+}
+
+function removeJob(jobId) {
+  const el = jobEls[jobId];
+  if (el) { el.remove(); delete jobEls[jobId]; }
+  if (!Object.keys(jobEls).length) {
+    jobList.innerHTML = '<div class="empty">No conversions yet — upload a PDF above to get started.</div>';
+  }
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+</script>
+</body>
+</html>
