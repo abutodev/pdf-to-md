@@ -2,6 +2,9 @@
   publish = "."
   functions = "netlify/functions"
 
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "ANTHROPIC_MODEL"
+
 [functions]
   node_bundler = "esbuild"
 
