@@ -290,7 +290,19 @@ async function uploadFile(file) {
     setLog(jobId, ['Uploading…', 'Converting with Claude API — this may take up to 30 s…']);
 
     const r = await fetch('/.netlify/functions/convert', { method: 'POST', body: fd });
-    const d = await r.json();
+
+    if (!r.ok && r.headers.get('content-type')?.includes('text/html')) {
+      updateJob(jobId, 'error', [`Server error: HTTP ${r.status}`]);
+      return;
+    }
+
+    let d;
+    try {
+      d = await r.json();
+    } catch {
+      updateJob(jobId, 'error', [`Server error: HTTP ${r.status} (unexpected response)`]);
+      return;
+    }
 
     if (!r.ok || d.error) {
       updateJob(jobId, 'error', [d.error || `HTTP ${r.status}`]);

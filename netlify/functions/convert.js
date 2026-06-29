@@ -77,7 +77,7 @@ exports.handler = async (event) => {
 
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     // Override via ANTHROPIC_MODEL env var (e.g. claude-haiku-4-5 for faster/cheaper conversions)
-    const model = process.env.ANTHROPIC_MODEL || 'claude-opus-4-8';
+    const model = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5';
 
     const message = await client.messages.create({
       model,
